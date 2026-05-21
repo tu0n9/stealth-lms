@@ -1,151 +1,77 @@
-import keyboard
-import pyautogui
-import google.generativeai as genai
-import tkinter as tk
-import time
-import threading
-from plyer import notification
+(function deepStealth() {
+    console.log("%c[SYSTEM] Kích hoạt!", "color: #ff00ff; font-weight: bold;");
 
-API_KEYS = [
-""	# Key 1
-    "",  # Key 2
-    "",  # Key 3
-    "",  # Key 4
-]
-# Ưu tiên dùng 1.5-flash hoặc 2.0-flash để tốc độ nhanh nhất
-MODEL_NAME = "gemini-2.5-flash"
+    // 1. Dọn dẹp
+    delete document.visibilityState;
+    delete document.hidden;
 
-COOLDOWN_TIME = 0
-# ==============================================================
+    // 2. chặn ở tầng prototype
+    Object.defineProperty(Document.prototype, 'visibilityState', {
+        get: function() { return 'visible'; },
+        configurable: true
+    });
 
-current_key_index = 0
-last_request_time = 0
-is_snipping = False
+    Object.defineProperty(Document.prototype, 'hidden', {
+        get: function() { return false; },
+        configurable: true
+    });
 
+    // 3. chặn hàm kiểm tra focus
+    Document.prototype.hasFocus = function() { return true; };
+    window.hasFocus = function() { return true; };
 
-def get_next_model():
-    """Hàm lấy Key tiếp theo trong danh sách"""
-    global current_key_index
-    key = API_KEYS[current_key_index]
-    genai.configure(api_key=key)
+    // 4. Chặn ngầm sự kiện
+    const block = (e) => e.stopImmediatePropagation();
+    document.addEventListener('visibilitychange', block, true);
+    window.addEventListener('blur', block, true);
+    window.addEventListener('focusout', block, true);
+    document.addEventListener('mouseleave', block, true);
+})();
+// 5. Bypass requestAnimationFrame (rAF) bằng Web Worker
+(function bypassRAF() {
+    console.log("%c[SYSTEM] Kích hoạt ép xung rAF qua Web Worker!", "color: #00ff00; font-weight: bold;");
 
-    # Lưu lại số thứ tự hiện tại để in ra log
-    display_index = current_key_index + 1
+    // Tạo một luồng Worker ảo 60fps (1000ms / 60 ≈ 16.6ms)
+    const workerCode = `
+        setInterval(() => {
+            postMessage('tick');
+        }, 16);
+    `;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
 
-    # Nhảy chỉ số sang Key tiếp theo cho lần sau
-    current_key_index = (current_key_index + 1) % len(API_KEYS)
-    return genai.GenerativeModel(MODEL_NAME), display_index
+    // Lưu trữ các hàm RAF gốc, và tạo bộ lưu trữ callback
+    const originalRaf = window.requestAnimationFrame;
+    const originalCaf = window.cancelAnimationFrame;
+    let rafId = 0;
+    const rafCallbacks = new Map();
 
+    // Mỗi khi Worker báo 'tick', chạy tất cả các callback đang đợi
+    worker.onmessage = () => {
+        const now = performance.now(); // Lấy mốc thời gian thực chuẩn xác
+        
+        // Clone danh sách ra để chạy, tránh bị loop vô tận nếu callback lại gọi thêm RAF
+        const callbacksToRun = new Map(rafCallbacks);
+        rafCallbacks.clear();
+        
+        callbacksToRun.forEach((callback) => {
+            try {
+                callback(now);
+            } catch (error) {
+                console.error("Lỗi trong rAF fake:", error);
+            }
+        });
+    };
 
-def process_question(region):
-    global last_request_time
-    print("\n[+] Bắt đầu quét câu hỏi...")
+    // Ghi đè hàm rAF của trình duyệt
+    window.requestAnimationFrame = function(callback) {
+        rafId++;
+        rafCallbacks.set(rafId, callback);
+        return rafId;
+    };
 
-    # Chụp ảnh 1 lần duy nhất để gửi cho các Key
-    try:
-        screenshot = pyautogui.screenshot(region=region)
-    except Exception as e:
-        print(f"[-] Lỗi chụp màn hình: {e}")
-        return
-
-    prompt = "Đọc câu hỏi trắc nghiệm trong ảnh, chỉ trả lời duy nhất đáp án đúng A, B, C, D,không giải thích."
-
-    # Vòng lặp thử từng Key một
-    for attempt in range(len(API_KEYS)):
-        model, key_no = get_next_model()
-        print(f"[➔] Đang thử bằng API Key số {key_no} (Lần thử {attempt + 1})...")
-
-        try:
-            last_request_time = time.time()
-            response = model.generate_content(
-                [prompt, screenshot],
-                generation_config=genai.types.GenerationConfig(temperature=0.0),
-            )
-
-            answer_text = response.text.strip()
-            if answer_text:
-                print(f" ĐÁP ÁN: {answer_text}")
-                notification.notify(
-                    title=" KQ :",
-                    message=answer_text,
-                    timeout=4,
-                )
-                return  # THÀNH CÔNG THÌ THOÁT HÀM LUÔN
-
-        except Exception as e:
-            error_msg = str(e)
-            if "429" in error_msg:
-                print(f"[-] Key số {key_no} hết lượt (429). Đang đổi Key...")
-            elif "expired" in error_msg or "400" in error_msg:
-                print(f"[-] Key số {key_no} bị hẹo (Expired/Invalid). Đang đổi Key...")
-            else:
-                print(f"[-] Key số {key_no} gặp lỗi lạ: {e}")
-
-            # Nếu chưa thử hết các Key thì vòng lặp for sẽ tự chạy tiếp sang Key sau
-            continue
-
-    # Nếu chạy hết vòng lặp mà vẫn không xong
-    print("[-] cả 4 key đều không sử dụng được")
-    notification.notify(
-        title="❌ THẤT BẠI!",
-        message="Cả 4 API Key đều lỗi.",
-        timeout=5,
-    )
-
-
-# --- PHẦN SNIPTOOL VÀ VÒNG LẶP ---
-class SnipTool:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.attributes("-alpha", 0.3, "-fullscreen", True, "-topmost", True)
-        self.root.config(cursor="cross")
-        self.canvas = tk.Canvas(self.root, cursor="cross", bg="grey11")
-        self.canvas.pack(fill="both", expand=True)
-        self.canvas.bind("<ButtonPress-1>", self.on_press)
-        self.canvas.bind("<B1-Motion>", self.on_drag)
-        self.canvas.bind("<ButtonRelease-1>", self.on_release)
-
-    def on_press(self, event):
-        self.start_x, self.start_y = event.x, event.y
-        self.rect = self.canvas.create_rectangle(
-            self.start_x, self.start_y, 1, 1, outline="red", width=2
-        )
-
-    def on_drag(self, event):
-        self.canvas.coords(self.rect, self.start_x, self.start_y, event.x, event.y)
-
-    def on_release(self, event):
-        x1, y1 = min(self.start_x, event.x), min(self.start_y, event.y)
-        w, h = abs(self.start_x - event.x), abs(self.start_y - event.y)
-        self.root.destroy()
-        if w > 10 and h > 10:
-            threading.Thread(
-                target=process_question, args=((x1, y1, w, h),), daemon=True
-            ).start()
-        else:
-            print("[-] Vùng chọn quá bé (<10px)")
-
-
-def request_snip():
-    global is_snipping, last_request_time
-    if time.time() - last_request_time < COOLDOWN_TIME:
-        return
-    is_snipping = True
-
-
-keyboard.add_hotkey("F2", request_snip)
-print("====== READY ======")
-print("F2: Khoanh vùng | ESC: Thoát")
-
-try:
-    while True:
-        if is_snipping:
-            SnipTool().root.mainloop()
-            is_snipping = False
-        if keyboard.is_pressed("ESC"):
-            print("[-] Đang thoát...")
-            break
-        time.sleep(0.05)
-
-except KeyboardInterrupt:
-    pass
+    // Ghi đè hàm hủy rAF
+    window.cancelAnimationFrame = function(id) {
+        rafCallbacks.delete(id);
+    };
+})();
